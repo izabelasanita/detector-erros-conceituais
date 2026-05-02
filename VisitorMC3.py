@@ -1,30 +1,51 @@
 import ast
+from spellchecker import SpellChecker # Importação da biblioteca pyspellchecker
+
+SPELL_EN = SpellChecker(language='en')
+SPELL_PT = SpellChecker(language='pt')
 
 class VisitorMC3(ast.NodeVisitor):
     def __init__(self):
-        self.builtinRedefinition = False
+        self.builtinRedefinition = 0 # Modificado para um contador
         self.declaredVariablesAsBuiltIn = []
         self.declaredFunctionsAsBuiltin = []
         self.declaredArgumentsAsBuiltin = []
 
-        self.boolOpAttemptedWithWhile = False
-        self.nonUtilizationElifElse = False
-        self.elifRetestingCondition = False
-        self.consecutiveEqualIfs = False
+        # Transformando todas as flags booleanas em contadores (inteiros)
+        self.boolOpAttemptedWithWhile = 0
+        self.nonUtilizationElifElse = 0
+        self.elifRetestingCondition = 0
+        self.consecutiveEqualIfs = 0
         
-        self.whileCondInItsBody = False
-        self.redundantLoop = False
-        self.forWithConstant = False
-        self.forVariableOverwritten = False
+        self.whileCondInItsBody = 0
+        self.redundantLoop = 0
+        self.forWithConstant = 0
+        self.forVariableOverwritten = 0
 
-        self.varOutsideFuncScope = False
+        self.varOutsideFuncScope = 0
 
-        self.listOverusage = False
+        self.listOverusage = 0
 
-        self.nonSignificantNames = False
-        self.arbitraryDeclarations = False
+        self.nonSignificantNamesCount = 0 # Alterado para guardar a contagem final
+        self.arbitraryDeclarations = 0
 
-        self.noEffectStatement = False
+        self.noEffectStatement = 0
+
+    def is_valid_short_name(self, word: str) -> bool:
+        """
+        Verifica se um nome curto é válido (Constante, palavra reservada ou palavra real do dicionário).
+        """
+        # 1. Se for totalmente maiúsculo, assumimos que é uma CONSTANTE
+        if word.isupper():
+            return True
+            
+        # 2. Se for uma palavra real conhecida nos dicionários de inglês ou português
+        # o pyspellchecker retorna a própria palavra se ela estiver correta no dicionário
+        word_lower = word.lower()
+        if word_lower in SPELL_PT or word_lower in SPELL_EN:
+            return True
+            
+        return False
 
     def checkBuiltInRedefinition(self, root):
         """Designed as a counter for A4 - Redefinition of built-in.
@@ -78,10 +99,9 @@ class VisitorMC3(ast.NodeVisitor):
                             if arg.arg in list_of_builtins and arg.arg not in self.declaredArgumentsAsBuiltin:
                                 self.declaredArgumentsAsBuiltin.append(arg.arg)
         
-        if len(self.declaredVariablesAsBuiltIn) + \
-           len(self.declaredFunctionsAsBuiltin) + \
-           len(self.declaredArgumentsAsBuiltin) > 0:
-            self.builtinRedefinition = True
+        self.builtinRedefinition = (len(self.declaredVariablesAsBuiltIn) +
+                                    len(self.declaredFunctionsAsBuiltin) + 
+                                    len(self.declaredArgumentsAsBuiltin))
 
     def checkBooleanAttemptedWithWhile(self, root):
         """Designed as a counter for B6 - Boolean comparison attempted with 
@@ -100,7 +120,7 @@ class VisitorMC3(ast.NodeVisitor):
                 if isinstance(node.test, ast.Compare) or isinstance(node.test, ast.BoolOp):
                     for item in node.body:
                         if isinstance(item, ast.Break):
-                            self.boolOpAttemptedWithWhile = True
+                            self.boolOpAttemptedWithWhile += 1 
     
     def checkNonUtilizationElifElse(self, root):
         """Designed as a counter for B8 - Non utilization of elif/else.
@@ -132,7 +152,7 @@ class VisitorMC3(ast.NodeVisitor):
                     if len(node.orelse) > 0:
                         if isinstance(node.orelse[0], ast.If):
                             if len(node.orelse[0].orelse) == 0:
-                                self.nonUtilizationElifElse = True
+                                self.nonUtilizationElifElse += 1
 
         checkElifWithoutElse(root)
 
@@ -204,7 +224,7 @@ class VisitorMC3(ast.NodeVisitor):
                 if compareLeft(mainLeft, node.left) and \
                    compareOps(mainOps, node.ops) and \
                    compareRight(mainCps, node.comparators):
-                    self.elifRetestingCondition = True
+                    self.elifRetestingCondition += 1
             
             if isinstance(node, ast.BoolOp):
                 for chd in node.values:
@@ -280,7 +300,7 @@ class VisitorMC3(ast.NodeVisitor):
 
                         if isinstance(firstIf.test, ast.Name) and isinstance(secondIf.test, ast.Name):
                             if firstIf.test.id == secondIf.test.id:
-                                self.consecutiveEqualIfs = True
+                                self.consecutiveEqualIfs += 1
 
                         if isinstance(firstIf.test, ast.Compare) and isinstance(secondIf.test, ast.Compare):
                             L = compareLeft(firstIf.test.left, secondIf.test.left)
@@ -288,7 +308,7 @@ class VisitorMC3(ast.NodeVisitor):
                             R = compareRight(firstIf.test.comparators, secondIf.test.comparators)
 
                             if L and O and R: 
-                                self.consecutiveEqualIfs = True
+                                self.consecutiveEqualIfs += 1
 
                     conseqIf = False
                 else:
@@ -362,7 +382,7 @@ class VisitorMC3(ast.NodeVisitor):
                                 R = compareRight(node.test.comparators, item.test.comparators)
 
                                 if L and O and R: 
-                                    self.whileCondInItsBody = True
+                                    self.whileCondInItsBody += 1
 
     def checkRedundantLoop(self, root):
         """Designed as a counter for C2 - Redundant or unnecessary loop.
@@ -386,25 +406,18 @@ class VisitorMC3(ast.NodeVisitor):
                             for item in node.body:
                                 if isinstance(item, ast.Break):
                                     #print("While-True-Break", end="")
-                                    self.redundantLoop = True
+                                    self.redundantLoop += 1
         
         def checkFor(root):
             """Helper function that checks if a For loop uses a range(1).
             """
-            hasRange = hasConstant = False
             for node in ast.walk(root):
                 if isinstance(node, ast.For):
                     if isinstance(node.iter, ast.Call):
                         if isinstance(node.iter.func, ast.Name) and node.iter.func.id == "range":
-                            hasRange = True
-                            if len(node.iter.args) == 1:
-                                if isinstance(node.iter.args[0], ast.Constant):
-                                    if node.iter.args[0].value == 1:
-                                        hasConstant = True
-
-            if hasRange is True and hasConstant is True:
-                #print("for-range(1)", end="")
-                self.redundantLoop = True
+                            if len(node.iter.args) == 1 and isinstance(node.iter.args[0], ast.Constant):
+                                if node.iter.args[0].value == 1:
+                                    self.redundantLoop += 1
         
         checkWhile(root)
         checkFor(root)
@@ -433,7 +446,7 @@ class VisitorMC3(ast.NodeVisitor):
                         if len(node.iter.args) == 1:
                             if isinstance(node.iter.args[0], ast.Constant):
                                 if node.iter.args[0].value >= constThreshold:
-                                    self.forWithConstant = True
+                                    self.forWithConstant += 1
 
     def checkForOverwritten(self, root, prevIterVars):
         """Designed as a counter for C8 - for loop having its iteration variable 
@@ -490,7 +503,7 @@ class VisitorMC3(ast.NodeVisitor):
                 if isinstance(asg, ast.Name): #direct assignments e.g. i = (...)
                     for var in prevIterVars + varIter:
                         if asg.id == var:
-                            self.forVariableOverwritten = True
+                            self.forVariableOverwritten += 1
 
                 if isinstance(asg, ast.Tuple): #unpacking e.g. i, j = (...)
                     for name in asg.elts:
@@ -499,7 +512,7 @@ class VisitorMC3(ast.NodeVisitor):
 
                         for var in prevIterVars + varIter:
                             if name.id == var:
-                                self.forVariableOverwritten = True
+                                self.forVariableOverwritten += 1
 
         for node in ast.walk(root):
             if isinstance(node, ast.For):
@@ -520,7 +533,7 @@ class VisitorMC3(ast.NodeVisitor):
 
                             for var in varIter:
                                 if stm.target.id == var:
-                                    self.forVariableOverwritten = True
+                                    self.forVariableOverwritten += 1
 
     def checkVarOutsideFuncScope(self, root):
         """Designed as a counter for D4 - Function accessing variables from outer 
@@ -582,14 +595,14 @@ class VisitorMC3(ast.NodeVisitor):
                         if isinstance(item, ast.Name) and item.id not in localVars:
                             localVars.append(item.id)
                             if item.id in globalVars:
-                                self.varOutsideFuncScope = True
+                                self.varOutsideFuncScope += 1
                         
                         if isinstance(item, ast.Tuple):
                             for elem in item.elts:
                                 if isinstance(elem, ast.Name) and elem.id not in localVars:
                                     localVars.append(elem.id)
                                     if elem.id in globalVars:
-                                        self.varOutsideFuncScope = True
+                                        self.varOutsideFuncScope += 1
             
             return localVars
 
@@ -610,7 +623,7 @@ class VisitorMC3(ast.NodeVisitor):
                     for arg in node.args:
                         if isinstance(arg, ast.Name):
                             if arg.id in globalVars and arg.id not in localVars:
-                                self.varOutsideFuncScope = True
+                                self.varOutsideFuncScope += 1
                     break
 
                 if isinstance(node, ast.Tuple):
@@ -618,7 +631,7 @@ class VisitorMC3(ast.NodeVisitor):
                     for item in node.elts:
                         if isinstance(item, ast.Name):
                             if item.id in globalVars and item.id not in localVars:
-                                self.varOutsideFuncScope = True
+                                self.varOutsideFuncScope += 1
                     break
                             
 
@@ -627,7 +640,7 @@ class VisitorMC3(ast.NodeVisitor):
                     if isinstance(node.slice, ast.Index):
                         if isinstance(node.slice.value, ast.Name):
                             if node.slice.value.id in globalVars and node.slice.value.id not in localVars:
-                                self.varOutsideFuncScope = True
+                                self.varOutsideFuncScope += 1
 
                         node = node.value
                     else: #Not covering Slice and ExtSlice e.g. a[1:2] or a[1:2, 3]
@@ -635,7 +648,7 @@ class VisitorMC3(ast.NodeVisitor):
             
             if isinstance(node, ast.Name):
                 if node.id in globalVars and node.id not in localVars:
-                    self.varOutsideFuncScope = True
+                    self.varOutsideFuncScope += 1
 
         def testFunctionCall(stm, localVars, globalVars):
             if isinstance(stm, ast.Expr):
@@ -645,13 +658,13 @@ class VisitorMC3(ast.NodeVisitor):
                     if isinstance(stm.value.func, ast.Attribute):
                         if isinstance(stm.value.func.value, ast.Name):
                             if stm.value.func.value.id in globalVars and stm.value.func.value.id not in localVars:
-                                self.varOutsideFuncScope = True
+                                self.varOutsideFuncScope += 1
 
                     #FunctionCall's arguments e.g. print(<var>), (...).append(<var>)
                     for arg in stm.value.args:
                         if isinstance(arg, ast.Name):
                             if arg.id in globalVars and arg.id not in localVars:
-                                self.varOutsideFuncScope = True
+                                self.varOutsideFuncScope += 1
 
         
         def testAssign(stm, localVars, globalVars):
@@ -665,12 +678,12 @@ class VisitorMC3(ast.NodeVisitor):
 
                     if isinstance(item, ast.Name):
                         if item.id in globalVars and item.id not in localVars:
-                            self.varOutsideFuncScope = True
+                            self.varOutsideFuncScope += 1
                     
                     if isinstance(item, ast.Tuple):
                         for elem in item.elts:
                             if isinstance(elem, ast.Name) and elem.id in globalVars and elem.id not in localVars:
-                                self.varOutsideFuncScope = True
+                                self.varOutsideFuncScope += 1
 
                 #Assign's RHS e.g. (...) = <var>
                 if isinstance(stm.value, ast.Subscript):
@@ -678,35 +691,35 @@ class VisitorMC3(ast.NodeVisitor):
 
                 if isinstance(stm.value, ast.Name):
                     if stm.value.id in globalVars and stm.value.id not in localVars:
-                        self.varOutsideFuncScope = True
+                        self.varOutsideFuncScope += 1
                 
                 if isinstance(stm.value, ast.Tuple):
                     for elem in stm.value.elts:
                         if isinstance(elem, ast.Name) and elem.id in globalVars and elem.id not in localVars:
-                            self.varOutsideFuncScope = True
+                            self.varOutsideFuncScope += 1
                 
                 if isinstance(stm.value, ast.Call):
                     for arg in stm.value.args:
                         if isinstance(arg, ast.Name):
                             if arg.id in globalVars and arg.id not in localVars:
-                                self.varOutsideFuncScope = True
+                                self.varOutsideFuncScope += 1
 
         def testAugAssign(stm, localVars, globalVars):
             if isinstance(stm, ast.AugAssign):
                 if isinstance(stm.target, ast.Name):
                     if stm.target.id in globalVars and stm.target.id not in localVars:
-                        self.varOutsideFuncScope = True
+                        self.varOutsideFuncScope += 1
 
                 if isinstance(stm.value, ast.Name):
                     if stm.value.id in globalVars and stm.value.id not in localVars:
-                        self.varOutsideFuncScope = True
+                        self.varOutsideFuncScope += 1
 
         def testConditionals(stm, localVars, globalVars):
             if isinstance(stm, ast.If) or isinstance(stm, ast.While):
                 if isinstance(stm.test, ast.Compare):
                     if isinstance(stm.test.left, ast.Name):
                         if stm.test.left.id in globalVars and stm.test.left.id not in localVars:
-                            self.varOutsideFuncScope = True
+                            self.varOutsideFuncScope += 1
                     
                     if isinstance(stm.test.left, ast.Subscript):
                         iterateSubscript(stm.test.left, localVars, globalVars)
@@ -714,7 +727,7 @@ class VisitorMC3(ast.NodeVisitor):
                     for item in stm.test.comparators:
                         if isinstance(item, ast.Name):
                             if item.id in globalVars and item.id not in localVars:
-                                self.varOutsideFuncScope = True
+                                self.varOutsideFuncScope += 1
 
                         if isinstance(item, ast.Subscript):
                             iterateSubscript(item, localVars, globalVars)
@@ -723,14 +736,14 @@ class VisitorMC3(ast.NodeVisitor):
             if isinstance(stm, ast.For):
                 if isinstance(stm.iter, ast.Name):
                     if stm.iter.id in globalVars and stm.iter.id not in localVars:
-                        self.varOutsideFuncScope = True
+                        self.varOutsideFuncScope += 1
 
                 if isinstance(stm.iter, ast.Call):
                     #FunctionCall's arguments e.g. print(<var>), (...).append(<var>)
                     for arg in stm.iter.args:
                         if isinstance(arg, ast.Name):
                             if arg.id in globalVars and arg.id not in localVars:
-                                self.varOutsideFuncScope = True
+                                self.varOutsideFuncScope += 1
 
 
         for node in ast.walk(root):
@@ -775,7 +788,7 @@ class VisitorMC3(ast.NodeVisitor):
                     numLists += 1
         
         if numLists > 0 and numLists >= numListTheshold:
-            self.listOverusage = True
+            self.listOverusage = numLists
     
     def checkNonSignificantNames(self, root, varLenThreshold, funcLenThreshold, totalNamesThreshold):
         """Designed as a counter for G4 - Functions/variables with non significant 
@@ -792,6 +805,9 @@ class VisitorMC3(ast.NodeVisitor):
            Rationale: if the names of variables and functions are too short, there
            is a chance they are not significant. The instructor should decide, based on
            the assignment, the given thresholds required in this method.
+        """
+        """
+        Atualizado: Agora filtra nomes válidos curtos e armazena a quantidade de ocorrências.
         """
         def collectVariableNames(root):
             """Collects the names of all user declared variables in the program.
@@ -813,72 +829,48 @@ class VisitorMC3(ast.NodeVisitor):
             return declaredVariablesNames
     
         def collectFunctionNames(root):
-            """Collects the names of all user declared functions in the program.
-            """
             declaredFunctionNames = []
             for node in ast.walk(root):
                 if isinstance(node, ast.FunctionDef):
                     if node.name not in declaredFunctionNames:
                         declaredFunctionNames.append(node.name)
-            
             return declaredFunctionNames
-        
-        def calculateNameLengthTotals(lenVarNames, lenFuncNames):
-            """Calculates the length of the names of all user declared 
-               variables and functions in the program.
-            """
+
+        def checkdeclaredVars(varNames, totalNamesThreshold):
+            totalNonSignificant = 0
             for name in varNames:
-                if len(name) not in lenVarNames:
-                    lenVarNames[len(name)] = 1
-                else:
-                    lenVarNames[len(name)] += 1
-
-            for name in funcNames:
-                if len(name) not in lenFuncNames:
-                    lenFuncNames[len(name)] = 1
-                else:
-                    lenFuncNames[len(name)] += 1
-
-        def checkdeclaredVars(varNames, lenVarNames, nameThreshold, totalVarsThreshold):
-            """Checks if the length of the names of all user declared 
-               variables DO NOT surpass the specified thresholds.
-            """
+                if len(name) <= varLenThreshold and not self.is_valid_short_name(name):
+                    totalNonSignificant += 1
+            
             totalVars = len(varNames)
-            totalNonSignificant = 0
-
-            for length, total in lenVarNames.items():
-                if length <= nameThreshold:
-                    totalNonSignificant += total
-
             if totalVars != 0:
-                if totalNonSignificant >= totalVars*totalVarsThreshold/100:
-                    self.nonSignificantNames = True
+                porcentagem_ruim = (totalNonSignificant / totalVars) * 100
+                if porcentagem_ruim >= totalNamesThreshold:
+                    # Se > x% das variáveis são ruins, retorna QUANTAS são ruins
+                    return totalNonSignificant 
+            
+            # Se não atingiu os x%, o erro não é contabilizado
+            return 0
 
-        def checkdeclaredFuncs(funcNames, lenFuncNames, nameThreshold, totalFuncsThreshold):
-            """Checks if the length of the names of all user declared 
-               functions DO NOT surpass the specified thresholds.
-            """
-            totalFuncs = len(funcNames)
+        def checkdeclaredFuncs(funcNames, totalNamesThreshold):
             totalNonSignificant = 0
-
-            for length, total in lenFuncNames.items():
-                if length <= nameThreshold:
-                    totalNonSignificant += total
-                    
+            for name in funcNames:
+                if len(name) <= funcLenThreshold and not self.is_valid_short_name(name):
+                    totalNonSignificant += 1
+            
+            totalFuncs = len(funcNames)
             if totalFuncs != 0:
-                if totalNonSignificant >= totalFuncs*totalFuncsThreshold/100:
-                    self.nonSignificantNames = True
-
+                porcentagem_ruim = (totalNonSignificant / totalFuncs) * 100
+                if porcentagem_ruim >= totalNamesThreshold:
+                    return totalNonSignificant
+            
+            return 0
         
-        lenVarNames, lenFuncNames = {}, {}
-
         varNames = collectVariableNames(root)
         funcNames = collectFunctionNames(root)
-
-        calculateNameLengthTotals(lenVarNames, lenFuncNames)
-
-        checkdeclaredVars(varNames, lenVarNames, varLenThreshold, totalNamesThreshold)
-        checkdeclaredFuncs(funcNames, lenFuncNames, funcLenThreshold, totalNamesThreshold)
+        
+        self.nonSignificantNamesCount = checkdeclaredVars(varNames, totalNamesThreshold) + \
+                                        checkdeclaredFuncs(funcNames, totalNamesThreshold)
 
     def checkArbitraryDeclarations(self, root):
         """Designed as a counter for G5 - Arbitrary organization of declarations.
@@ -916,7 +908,7 @@ class VisitorMC3(ast.NodeVisitor):
        
         for node in lst[:numFunc]:
             if not isinstance(node, ast.FunctionDef):
-                self.arbitraryDeclarations = True
+                self.arbitraryDeclarations += 1
 
     def checkNoEffectStatement(self, root):
         """Designed as a counter for H1 - Statement with no effect.
@@ -936,7 +928,7 @@ class VisitorMC3(ast.NodeVisitor):
 
                     #Ignores block comments parsed as empty string constants
                     if not isinstance(node.value.value, str):
-                        self.noEffectStatement = True
+                        self.noEffectStatement += 1
 
     def getA4(self, root):
         '''A4 - Redefinition of built-in.'''
@@ -998,7 +990,7 @@ class VisitorMC3(ast.NodeVisitor):
         '''G4 - Functions/variables with non significant name.'''
         self.checkNonSignificantNames(root, varLenThreshold, 
                                       funcLenThreshold, totalNamesThreshold)
-        return self.nonSignificantNames
+        return self.nonSignificantNamesCount
     
     def getG5(self, root):
         '''G5 - Arbitrary organization of declarations.'''
